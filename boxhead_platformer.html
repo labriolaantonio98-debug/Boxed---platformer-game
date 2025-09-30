@@ -1,0 +1,497 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Box Head Platformer</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            background: linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%);
+            font-family: 'Courier New', monospace;
+        }
+        #gameContainer {
+            text-align: center;
+        }
+        canvas {
+            border: 4px solid #000;
+            background: #9a9a9a;
+            display: block;
+            margin: 0 auto;
+            image-rendering: pixelated;
+            image-rendering: crisp-edges;
+            box-shadow: 0 0 30px rgba(0,0,0,0.8);
+        }
+        #ui {
+            color: white;
+            margin-top: 15px;
+            font-size: 18px;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.5);
+        }
+        #controls {
+            color: white;
+            margin-top: 10px;
+            font-size: 14px;
+            opacity: 0.9;
+        }
+        .button {
+            background: #4299e1;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            margin: 5px;
+            cursor: pointer;
+            font-family: 'Courier New', monospace;
+            font-size: 16px;
+            border-radius: 5px;
+            transition: background 0.3s;
+        }
+        .button:hover {
+            background: #3182ce;
+        }
+    </style>
+</head>
+<body>
+    <div id="gameContainer">
+        <canvas id="gameCanvas" width="800" height="600"></canvas>
+        <div id="ui">
+            <div>Level: <span id="level">1</span> / 10</div>
+            <div>Deaths: <span id="deaths">0</span></div>
+        </div>
+        <div id="controls">
+            Controls: Arrow Keys or A/D to move, Space/W/Up to jump
+        </div>
+        <div id="buttons">
+            <button class="button" onclick="game.restart()">Restart Level</button>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+
+        const TILE_SIZE = 40;
+        const GRAVITY = 0.6;
+        const JUMP_STRENGTH = -13;
+        const MOVE_SPEED = 5;
+
+        class Player {
+            constructor(x, y) {
+                this.x = x;
+                this.y = y;
+                this.width = 32;
+                this.height = 32;
+                this.vx = 0;
+                this.vy = 0;
+                this.onGround = false;
+                this.jumpPressed = false;
+            }
+
+            draw() {
+                // Body (simple pixelated boy)
+                ctx.fillStyle = '#404040';
+                ctx.fillRect(this.x + 8, this.y + 16, 16, 16);
+                
+                // Arms
+                ctx.fillStyle = '#5a5a5a';
+                ctx.fillRect(this.x + 4, this.y + 20, 6, 10);
+                ctx.fillRect(this.x + 22, this.y + 20, 6, 10);
+                
+                // Legs
+                ctx.fillStyle = '#2a2a2a';
+                ctx.fillRect(this.x + 10, this.y + 26, 6, 6);
+                ctx.fillRect(this.x + 16, this.y + 26, 6, 6);
+                
+                // Cardboard box head
+                ctx.fillStyle = '#707070';
+                ctx.fillRect(this.x + 4, this.y, 24, 18);
+                
+                // Box details
+                ctx.strokeStyle = '#3a3a3a';
+                ctx.lineWidth = 2;
+                ctx.strokeRect(this.x + 4, this.y, 24, 18);
+                ctx.beginPath();
+                ctx.moveTo(this.x + 4, this.y + 9);
+                ctx.lineTo(this.x + 28, this.y + 9);
+                ctx.stroke();
+                
+                // Eyes (holes in box)
+                ctx.fillStyle = '#000000';
+                ctx.fillRect(this.x + 10, this.y + 6, 4, 4);
+                ctx.fillRect(this.x + 18, this.y + 6, 4, 4);
+            }
+
+            update(platforms, hazards) {
+                // Apply gravity
+                this.vy += GRAVITY;
+                
+                // Move
+                this.x += this.vx;
+                this.y += this.vy;
+                
+                this.onGround = false;
+                
+                // Platform collision
+                for (let platform of platforms) {
+                    if (this.x < platform.x + platform.width &&
+                        this.x + this.width > platform.x &&
+                        this.y < platform.y + platform.height &&
+                        this.y + this.height > platform.y) {
+                        
+                        // Top collision
+                        if (this.vy > 0 && this.y + this.height - this.vy < platform.y + 5) {
+                            this.y = platform.y - this.height;
+                            this.vy = 0;
+                            this.onGround = true;
+                        }
+                        // Bottom collision
+                        else if (this.vy < 0 && this.y - this.vy > platform.y + platform.height) {
+                            this.y = platform.y + platform.height;
+                            this.vy = 0;
+                        }
+                        // Side collision
+                        else {
+                            if (this.vx > 0) this.x = platform.x - this.width;
+                            if (this.vx < 0) this.x = platform.x + platform.width;
+                        }
+                    }
+                }
+                
+                // Hazard collision
+                for (let hazard of hazards) {
+                    if (this.x < hazard.x + hazard.width &&
+                        this.x + this.width > hazard.x &&
+                        this.y < hazard.y + hazard.height &&
+                        this.y + this.height > hazard.y) {
+                        return true; // Dead
+                    }
+                }
+                
+                // Boundary
+                if (this.x < 0) this.x = 0;
+                if (this.x + this.width > canvas.width) this.x = canvas.width - this.width;
+                
+                // Fall off map
+                if (this.y > canvas.height) return true;
+                
+                return false;
+            }
+        }
+
+        const levels = [
+            // Level 1 - Tutorial
+            {
+                platforms: [
+                    {x: 0, y: 560, width: 300, height: 15},
+                    {x: 400, y: 560, width: 400, height: 15},
+                ],
+                hazards: [
+                    {x: 300, y: 560, width: 100, height: 15, type: 'hole'}
+                ],
+                goal: {x: 740, y: 520},
+                spawn: {x: 50, y: 500}
+            },
+            // Level 2 - Basic jumps
+            {
+                platforms: [
+                    {x: 0, y: 560, width: 200, height: 15},
+                    {x: 300, y: 480, width: 150, height: 15},
+                    {x: 550, y: 560, width: 250, height: 15},
+                ],
+                hazards: [
+                    {x: 200, y: 560, width: 100, height: 15, type: 'hole'},
+                    {x: 450, y: 560, width: 100, height: 15, type: 'hole'}
+                ],
+                goal: {x: 740, y: 520},
+                spawn: {x: 50, y: 500}
+            },
+            // Level 3 - Spikes appear
+            {
+                platforms: [
+                    {x: 0, y: 560, width: 200, height: 15},
+                    {x: 300, y: 460, width: 100, height: 15},
+                    {x: 500, y: 560, width: 300, height: 15},
+                ],
+                hazards: [
+                    {x: 200, y: 560, width: 100, height: 15, type: 'hole'},
+                    {x: 400, y: 560, width: 100, height: 15, type: 'hole'},
+                    {x: 500, y: 545, width: 40, height: 15, type: 'spike'},
+                    {x: 580, y: 545, width: 40, height: 15, type: 'spike'}
+                ],
+                goal: {x: 740, y: 520},
+                spawn: {x: 50, y: 500}
+            },
+            // Level 4 - Vertical challenge
+            {
+                platforms: [
+                    {x: 0, y: 560, width: 150, height: 15},
+                    {x: 250, y: 480, width: 100, height: 15},
+                    {x: 450, y: 400, width: 100, height: 15},
+                    {x: 650, y: 480, width: 150, height: 15},
+                ],
+                hazards: [
+                    {x: 150, y: 560, width: 100, height: 15, type: 'hole'},
+                    {x: 350, y: 560, width: 100, height: 15, type: 'hole'},
+                    {x: 550, y: 560, width: 100, height: 15, type: 'hole'},
+                    {x: 450, y: 385, width: 40, height: 15, type: 'spike'}
+                ],
+                goal: {x: 740, y: 440},
+                spawn: {x: 50, y: 500}
+            },
+            // Level 5 - Spike gauntlet
+            {
+                platforms: [
+                    {x: 0, y: 560, width: 800, height: 15},
+                    {x: 200, y: 440, width: 100, height: 15},
+                    {x: 500, y: 440, width: 100, height: 15},
+                ],
+                hazards: [
+                    {x: 150, y: 545, width: 40, height: 15, type: 'spike'},
+                    {x: 230, y: 545, width: 40, height: 15, type: 'spike'},
+                    {x: 310, y: 545, width: 40, height: 15, type: 'spike'},
+                    {x: 390, y: 545, width: 40, height: 15, type: 'spike'},
+                    {x: 650, y: 545, width: 40, height: 15, type: 'spike'},
+                    {x: 700, y: 545, width: 40, height: 15, type: 'spike'}
+                ],
+                goal: {x: 740, y: 520},
+                spawn: {x: 50, y: 500}
+            },
+            // Level 6 - Precision jumps
+            {
+                platforms: [
+                    {x: 0, y: 560, width: 120, height: 15},
+                    {x: 200, y: 480, width: 80, height: 15},
+                    {x: 360, y: 420, width: 80, height: 15},
+                    {x: 520, y: 480, width: 80, height: 15},
+                    {x: 680, y: 560, width: 120, height: 15},
+                ],
+                hazards: [
+                    {x: 120, y: 560, width: 80, height: 15, type: 'hole'},
+                    {x: 280, y: 560, width: 80, height: 15, type: 'hole'},
+                    {x: 440, y: 560, width: 80, height: 15, type: 'hole'},
+                    {x: 600, y: 560, width: 80, height: 15, type: 'hole'},
+                    {x: 360, y: 405, width: 40, height: 15, type: 'spike'}
+                ],
+                goal: {x: 740, y: 520},
+                spawn: {x: 50, y: 500}
+            },
+            // Level 7 - The climb (Made easier)
+            {
+                platforms: [
+                    {x: 0, y: 560, width: 200, height: 15},
+                    {x: 600, y: 560, width: 200, height: 15},
+                    {x: 150, y: 460, width: 150, height: 15},
+                    {x: 500, y: 460, width: 150, height: 15},
+                    {x: 250, y: 360, width: 150, height: 15},
+                    {x: 400, y: 360, width: 150, height: 15},
+                    {x: 325, y: 260, width: 150, height: 15},
+                ],
+                hazards: [
+                    {x: 0, y: 545, width: 40, height: 15, type: 'spike'},
+                    {x: 700, y: 545, width: 40, height: 15, type: 'spike'}
+                ],
+                goal: {x: 380, y: 220},
+                spawn: {x: 50, y: 500}
+            },
+            // Level 8 - Speed run
+            {
+                platforms: [
+                    {x: 0, y: 560, width: 100, height: 15},
+                    {x: 150, y: 500, width: 80, height: 15},
+                    {x: 280, y: 450, width: 80, height: 15},
+                    {x: 410, y: 400, width: 80, height: 15},
+                    {x: 540, y: 450, width: 80, height: 15},
+                    {x: 670, y: 500, width: 130, height: 15},
+                ],
+                hazards: [
+                    {x: 100, y: 560, width: 50, height: 15, type: 'hole'},
+                    {x: 230, y: 560, width: 50, height: 15, type: 'hole'},
+                    {x: 360, y: 560, width: 50, height: 15, type: 'hole'},
+                    {x: 490, y: 560, width: 50, height: 15, type: 'hole'},
+                    {x: 620, y: 560, width: 50, height: 15, type: 'hole'},
+                    {x: 410, y: 385, width: 40, height: 15, type: 'spike'}
+                ],
+                goal: {x: 740, y: 460},
+                spawn: {x: 50, y: 500}
+            },
+            // Level 9 - The maze
+            {
+                platforms: [
+                    {x: 0, y: 560, width: 200, height: 15},
+                    {x: 300, y: 560, width: 500, height: 15},
+                    {x: 100, y: 450, width: 200, height: 15},
+                    {x: 500, y: 450, width: 200, height: 15},
+                    {x: 200, y: 340, width: 400, height: 15},
+                    {x: 350, y: 230, width: 100, height: 15},
+                ],
+                hazards: [
+                    {x: 200, y: 560, width: 100, height: 15, type: 'hole'},
+                    {x: 100, y: 435, width: 40, height: 15, type: 'spike'},
+                    {x: 200, y: 435, width: 40, height: 15, type: 'spike'},
+                    {x: 500, y: 435, width: 40, height: 15, type: 'spike'},
+                    {x: 600, y: 435, width: 40, height: 15, type: 'spike'},
+                    {x: 300, y: 545, width: 40, height: 15, type: 'spike'},
+                    {x: 400, y: 545, width: 40, height: 15, type: 'spike'},
+                    {x: 700, y: 545, width: 40, height: 15, type: 'spike'}
+                ],
+                goal: {x: 380, y: 190},
+                spawn: {x: 50, y: 500}
+            },
+            // Level 10 - Final challenge
+            {
+                platforms: [
+                    {x: 0, y: 560, width: 120, height: 15},
+                    {x: 180, y: 480, width: 70, height: 15},
+                    {x: 310, y: 400, width: 70, height: 15},
+                    {x: 440, y: 320, width: 70, height: 15},
+                    {x: 570, y: 400, width: 70, height: 15},
+                    {x: 700, y: 480, width: 100, height: 15},
+                    {x: 350, y: 200, width: 100, height: 15},
+                ],
+                hazards: [
+                    {x: 120, y: 560, width: 60, height: 15, type: 'hole'},
+                    {x: 250, y: 560, width: 60, height: 15, type: 'hole'},
+                    {x: 380, y: 560, width: 60, height: 15, type: 'hole'},
+                    {x: 510, y: 560, width: 60, height: 15, type: 'hole'},
+                    {x: 640, y: 560, width: 60, height: 15, type: 'hole'},
+                    {x: 180, y: 465, width: 30, height: 15, type: 'spike'},
+                    {x: 310, y: 385, width: 30, height: 15, type: 'spike'},
+                    {x: 440, y: 305, width: 30, height: 15, type: 'spike'},
+                    {x: 570, y: 385, width: 30, height: 15, type: 'spike'},
+                    {x: 720, y: 465, width: 30, height: 15, type: 'spike'}
+                ],
+                goal: {x: 380, y: 160},
+                spawn: {x: 50, y: 500}
+            }
+        ];
+
+        class Game {
+            constructor() {
+                this.currentLevel = 0;
+                this.deaths = 0;
+                this.keys = {};
+                this.loadLevel();
+                
+                window.addEventListener('keydown', (e) => {
+                    this.keys[e.key] = true;
+                    if (e.key === ' ' || e.key === 'w' || e.key === 'ArrowUp') {
+                        e.preventDefault();
+                    }
+                });
+                
+                window.addEventListener('keyup', (e) => {
+                    this.keys[e.key] = false;
+                });
+            }
+
+            loadLevel() {
+                const level = levels[this.currentLevel];
+                this.player = new Player(level.spawn.x, level.spawn.y);
+                this.platforms = level.platforms;
+                this.hazards = level.hazards;
+                this.goal = level.goal;
+                document.getElementById('level').textContent = this.currentLevel + 1;
+            }
+
+            restart() {
+                this.deaths++;
+                document.getElementById('deaths').textContent = this.deaths;
+                this.loadLevel();
+            }
+
+            nextLevel() {
+                this.currentLevel++;
+                if (this.currentLevel >= levels.length) {
+                    alert(`Congratulations! You beat all 10 levels!\nTotal deaths: ${this.deaths}`);
+                    this.currentLevel = 0;
+                    this.deaths = 0;
+                    document.getElementById('deaths').textContent = this.deaths;
+                }
+                this.loadLevel();
+            }
+
+            update() {
+                // Input
+                this.player.vx = 0;
+                if (this.keys['ArrowLeft'] || this.keys['a']) this.player.vx = -MOVE_SPEED;
+                if (this.keys['ArrowRight'] || this.keys['d']) this.player.vx = MOVE_SPEED;
+                
+                const jumpKey = this.keys[' '] || this.keys['w'] || this.keys['ArrowUp'];
+                if (jumpKey && this.player.onGround && !this.player.jumpPressed) {
+                    this.player.vy = JUMP_STRENGTH;
+                    this.player.jumpPressed = true;
+                }
+                if (!jumpKey) {
+                    this.player.jumpPressed = false;
+                }
+                
+                // Update
+                const dead = this.player.update(this.platforms, this.hazards);
+                if (dead) {
+                    this.restart();
+                }
+                
+                // Check goal
+                if (this.player.x < this.goal.x + 32 &&
+                    this.player.x + this.player.width > this.goal.x &&
+                    this.player.y < this.goal.y + 32 &&
+                    this.player.y + this.player.height > this.goal.y) {
+                    this.nextLevel();
+                }
+            }
+
+            draw() {
+                // Clear
+                ctx.fillStyle = '#e8e8e8';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+                
+                // Platforms
+                ctx.fillStyle = '#000000';
+                for (let platform of this.platforms) {
+                    ctx.fillRect(platform.x, platform.y, platform.width, platform.height);
+                }
+                
+                // Hazards
+                for (let hazard of this.hazards) {
+                    if (hazard.type === 'spike') {
+                        ctx.fillStyle = '#2a2a2a';
+                        ctx.beginPath();
+                        for (let i = 0; i < hazard.width; i += 20) {
+                            ctx.moveTo(hazard.x + i, hazard.y + hazard.height);
+                            ctx.lineTo(hazard.x + i + 10, hazard.y);
+                            ctx.lineTo(hazard.x + i + 20, hazard.y + hazard.height);
+                        }
+                        ctx.fill();
+                    }
+                }
+                
+                // Goal
+                ctx.fillStyle = '#666666';
+                ctx.beginPath();
+                ctx.arc(this.goal.x + 16, this.goal.y + 16, 16, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.strokeStyle = '#333333';
+                ctx.lineWidth = 3;
+                ctx.stroke();
+                
+                // Player
+                this.player.draw();
+            }
+
+            loop() {
+                this.update();
+                this.draw();
+                requestAnimationFrame(() => this.loop());
+            }
+        }
+
+        const game = new Game();
+        game.loop();
+    </script>
+</body>
+</html>
